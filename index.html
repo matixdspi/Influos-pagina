@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Asignación de Tribu</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: background-color 0.5s ease;
+            background-color: #f0f2f5;
+        }
+
+        .card {
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 32px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 20px 35px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            backdrop-filter: blur(2px);
+            transition: all 0.3s;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: #1e2a3e;
+        }
+
+        .sub {
+            color: #4a627a;
+            margin-bottom: 1.5rem;
+            font-size: 1rem;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 18px;
+            font-size: 1rem;
+            border: 2px solid #cbd5e1;
+            border-radius: 48px;
+            outline: none;
+            transition: 0.2s;
+            margin-bottom: 1rem;
+        }
+
+        input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59,130,246,0.2);
+        }
+
+        button {
+            background-color: #1e293b;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 48px;
+            cursor: pointer;
+            width: 100%;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            background-color: #0f172a;
+            transform: scale(0.98);
+        }
+
+        .resultado {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            border-radius: 24px;
+            font-weight: bold;
+            font-size: 1.2rem;
+            background: rgba(0,0,0,0.05);
+        }
+
+        .error {
+            color: #b91c1c;
+            background: #fee2e2;
+        }
+
+        .loading {
+            color: #2563eb;
+        }
+
+        footer {
+            margin-top: 1.5rem;
+            font-size: 0.75rem;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card" id="app">
+    <h1>⚔️ Encuentra tu Tribu ⚔️</h1>
+    <div class="sub">Ingresá tu nombre completo (como lo anotaste en el formulario)</div>
+    <input type="text" id="nombreInput" placeholder="Ej: Ana Gómez" autocomplete="off">
+    <button id="buscarBtn">🔍 Descubrir mi tribu</button>
+    <div id="mensajeResultado" class="resultado"></div>
+</div>
+
+<script>
+    // ⚙️ CONFIGURACIÓN: Poné acá el link de tu Google Sheet publicado como CSV
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ95q-vHTYQQO2MU16yy6nCvexLRuLzMXBBpoo4v30l9qsdaeeKI_AmAZjjOyCAg3DCkCqMJNHuUrQI/pub?output=csv"; // <--- CAMBIÁ ESTO
+
+    // Mapeo de colores por tribu (por si en la hoja solo tenés el nombre de la tribu y querés un color fijo)
+    // Si tu hoja ya tiene una columna "color", se usará esa. Si no, podés definir acá:
+    const COLOR_POR_TRIBU = {
+        "Lobos": "#4A6FA5",
+        "Cuervos": "#1A1A1A",
+        "Dragones": "#B22234",
+        "Gorilas": "#2E5A3B",
+        // Agregá más si querés
+    };
+
+    // Elementos del DOM
+    const inputNombre = document.getElementById('nombreInput');
+    const btnBuscar = document.getElementById('buscarBtn');
+    const divResultado = document.getElementById('mensajeResultado');
+
+    // Función para normalizar nombres (quita espacios extra, tildes? opcional)
+    function normalizarTexto(str) {
+        return str.trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    // Función principal: buscar en el CSV
+    async function buscarTribu(nombreIngresado) {
+        if (!nombreIngresado.trim()) {
+            divResultado.innerHTML = '<span class="error">❌ Escribí tu nombre completo</span>';
+            return;
+        }
+
+        divResultado.innerHTML = '<span class="loading">⏳ Buscando en la base de datos...</span>';
+        
+        try {
+            // 1. Obtener el CSV
+            const response = await fetch(CSV_URL);
+            if (!response.ok) throw new Error('No se pudo cargar la hoja de datos');
+            const csvText = await response.text();
+
+            // 2. Parsear CSV simple (asumiendo primera fila de encabezados)
+            const lineas = csvText.split(/\r?\n/).filter(linea => linea.trim() !== '');
+            if (lineas.length < 2) throw new Error('La hoja está vacía');
+
+            const encabezados = lineas[0].split(',').map(h => h.trim().toLowerCase());
+            
+            // Buscar índices de columnas que nos interesan
+            const idxNombre = encabezados.findIndex(h => h.includes('nombre'));
+            const idxApellido = encabezados.findIndex(h => h.includes('apellido'));
+            const idxTribu = encabezados.findIndex(h => h === 'tribu');
+            const idxColor = encabezados.findIndex(h => h === 'color');
+
+            if (idxNombre === -1) throw new Error('La hoja no tiene columna "nombre"');
+            
+            // Normalizar input del usuario
+            const nombreBuscado = normalizarTexto(nombreIngresado);
+            
+            let encontrado = false;
+            let tribu = '';
+            let color = '';
+
+            // Recorrer filas (desde línea 1 en adelante)
+            for (let i = 1; i < lineas.length; i++) {
+                // Manejo simple de CSV: separar por comas (no cubre comillas, pero para este caso funciona)
+                const columnas = lineas[i].split(',').map(c => c.trim());
+                if (columnas.length < Math.max(idxNombre, idxApellido, idxTribu) + 1) continue;
+                
+                const nombreEnFila = columnas[idxNombre] || '';
+                const apellidoEnFila = idxApellido !== -1 ? (columnas[idxApellido] || '') : '';
+                const nombreCompletoFila = normalizarTexto(nombreEnFila + ' ' + apellidoEnFila);
+                const soloNombreNormalizado = normalizarTexto(nombreEnFila);
+                
+                // Comparación flexible: puede ingresar "Ana Gómez" o solo "Ana"
+                if (nombreCompletoFila === nombreBuscado || soloNombreNormalizado === nombreBuscado) {
+                    encontrado = true;
+                    tribu = (idxTribu !== -1) ? columnas[idxTribu] : 'Sin tribu asignada';
+                    color = (idxColor !== -1 && columnas[idxColor]) ? columnas[idxColor] : (COLOR_POR_TRIBU[tribu] || '#cccccc');
+                    break;
+                }
+            }
+
+            if (encontrado) {
+                // Éxito: cambiar fondo y mostrar mensaje
+                document.body.style.backgroundColor = color;
+                divResultado.innerHTML = `
+                `;
+                // Opcional: animación suave
+            } else {
+                // No encontrado: fondo neutro y mensaje de error
+                document.body.style.backgroundColor = "#f0f2f5";
+                divResultado.innerHTML = '<span class="error">😕 No encontramos tu nombre. ¿Está bien escrito? Acercate a la mesa de ayuda.</span>';
+            }
+
+        } catch (error) {
+            console.error(error);
+            document.body.style.backgroundColor = "#f0f2f5";
+            divResultado.innerHTML = `<span class="error">⚠️ Error de conexión o datos: ${error.message}. Avisá al organizador.</span>`;
+        }
+    }
+
+    // Eventos
+    btnBuscar.addEventListener('click', () => {
+        buscarTribu(inputNombre.value);
+    });
+
+    inputNombre.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            buscarTribu(inputNombre.value);
+        }
+    });
+
+    // Pequeña bienvenida: fondo claro por defecto
+    document.body.style.backgroundColor = "#f0f2f5";
+</script>
+</body>
+</html>
